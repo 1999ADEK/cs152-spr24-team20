@@ -8,6 +8,8 @@ import re
 import requests
 from report import Report
 import pdb
+import asyncio
+from collections import deque
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -35,6 +37,16 @@ class ModBot(discord.Client):
         self.mod_channels = {} # Map from guild to the mod channel id for that guild
         self.reports = {} # Map from user IDs to the state of their report
 
+        # A queue to handle reports of immediate harms
+        # TODO: Probably have to switch to heap to support SybilRank priority
+        self.immediate_harm_queue = deque()
+
+    async def setup_hook(self):
+        '''
+        Setup a background task.
+        '''
+        self.bg_task = self.loop.create_task(self.handle_immediate_harm())
+    
     async def on_ready(self):
         print(f'{self.user.name} has connected to Discord! It is these guilds:')
         for guild in self.guilds:
@@ -53,6 +65,9 @@ class ModBot(discord.Client):
             for channel in guild.text_channels:
                 if channel.name == f'group-{self.group_num}-mod':
                     self.mod_channels[guild.id] = channel
+                    # A temporary fix to directly access guild id
+                    # TODO: Access this info from Report
+                    self.guild_id = guild.id
         
 
     async def on_message(self, message):
@@ -101,9 +116,47 @@ class ModBot(discord.Client):
                 await message.channel.send(response)  # Send normal text message
 
         # If the report is complete or cancelled, remove it from our map
+        # TODO: There might be a bug in current Report implementation
+        #       I need to send an extra dm message to the bot to get to this part of the code
         if self.reports[author_id].report_complete():
-            print(f"Removing report for {author_id}")
-            self.reports.pop(author_id)
+            report = self.reports.pop(author_id)
+            # If the report is cancelled, do nothing
+            if report.category is None or report.sub_category is None:
+                return
+            # Otherwise, start the moderating process
+            if report.category in ["Harassment"]: # Immediate harms
+                # Handle algorithmic review process
+                self.immediate_harm_queue.append(report)
+            elif report.category in ["Spam", "Misinformation"]: # Suggestive harms
+                # Handle appeal process
+                # TODO: Create another method and complete the process
+                await self.mod_channels[self.guild_id].send(
+                    f'Got a report. Category: {report.category} | Sub-category: {report.sub_category}\n' + 
+                    f'TODO: Handle the appeal process via DM.'
+                )
+            else:
+                raise ValueError(f"Found undefined category {report.category}.")
+            
+
+    async def handle_immediate_harm(self):
+        '''
+        A background task to handle immediate harm reports.
+        '''
+        await self.wait_until_ready()
+        while not self.is_closed():
+            # If the mod channel is set up and we have at least one immediate harm in the queue,
+            # start the review process
+            # TODO: Complete the process
+            if self.mod_channels and self.immediate_harm_queue:
+                report = self.immediate_harm_queue.popleft()
+                mod_channel = self.mod_channels[self.guild_id]
+                await mod_channel.send(
+                    f'Got a report. Category: {report.category} | Sub-category: {report.sub_category}'
+                )
+            # Otherwise, sleep for 30 seconds
+            else:
+                await asyncio.sleep(30)
+
 
     async def handle_channel_message(self, message):
         # Only handle messages sent in the "group-#" channel
