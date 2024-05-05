@@ -45,6 +45,11 @@ class SubCategoryButton(Button):
         # Clear the buttons once selected and send confirmation message
         await interaction.response.edit_message(content=f"Sub-category '{self.sub_category}' selected. Thank you for your report. Our moderation team will review this post.", view=None)
 
+        # Need this fake message to call handle_dm so that it will mark the report as complete and remove it from the reports dictionary
+        # Should mark as pending for moderators when implementing moderator flow
+        fake_message = type('FakeMessage', (object,), {"author": interaction.user, "content": "end_report", "channel": interaction.channel})
+        await self.report.client.handle_dm(fake_message)
+
 class Report:
     START_KEYWORD = "report"
     CANCEL_KEYWORD = "cancel"
@@ -130,6 +135,9 @@ class Report:
                 return ["Thank you for your report. Our moderation team will review this post. You may choose to mute or block the user."]
             else:
                 return ["Invalid sub-category. Please try again or say `cancel` to cancel."]
+        
+        if self.state == State.REPORT_COMPLETE:
+            return []
 
         return ["An error has occurred. Please restart the reporting process."]
 
