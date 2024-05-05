@@ -65,6 +65,7 @@ class Report:
 
         self.category = None
         self.sub_category = None
+        self.message_author = None
 
         
     
@@ -108,6 +109,10 @@ class Report:
             category_buttons = View()
             for category in self.CATEGORIES:
                 category_buttons.add_item(CategoryButton(category, self))
+            
+
+            self.message = message.content
+            self.message_author_name = message.author.name
             return [(("I found this message:\n```" + message.author.name + ": " + message.content + "```" + "Please select the problem:"), category_buttons)]
         
         if self.state == State.AWAITING_CATEGORY:
