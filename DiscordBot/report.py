@@ -116,7 +116,7 @@ class Report:
                 category_buttons.add_item(CategoryButton(category, self))
             
 
-            self.message = message.content
+            self.message = message
             self.message_author_name = message.author.name
             return [(("I found this message:\n```" + message.author.name + ": " + message.content + "```" + "Please select the problem:"), category_buttons)]
         
