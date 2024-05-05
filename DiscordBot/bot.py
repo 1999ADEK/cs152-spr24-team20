@@ -80,9 +80,10 @@ class ModBot(discord.Client):
             return
 
         # Check if this message was sent in a server ("guild") or if it's a DM
-        if message.guild:
+        channel = message.channel
+        if isinstance(channel, discord.TextChannel):
             await self.handle_channel_message(message)
-        else:
+        elif isinstance(channel, discord.DMChannel):
             await self.handle_dm(message)
 
     async def handle_dm(self, message):
