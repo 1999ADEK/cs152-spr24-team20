@@ -9,7 +9,7 @@ import requests
 from report import Report
 import pdb
 import asyncio
-from collections import deque
+from collections import deque, OrderedDict
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -40,6 +40,8 @@ class ModBot(discord.Client):
         # A queue to handle reports of immediate harms
         # TODO: Probably have to switch to heap to support SybilRank priority
         self.immediate_harm_queue = deque()
+        # A queue to handle reports of suggestive harms
+        self.suggestive_harm_dict = OrderedDict()
 
     async def setup_hook(self):
         '''
@@ -85,6 +87,8 @@ class ModBot(discord.Client):
             await self.handle_channel_message(message)
         elif isinstance(channel, discord.DMChannel):
             await self.handle_dm(message)
+        elif isinstance(channel, discord.Thread):
+            await self.handle_appeal(message)
 
     async def handle_dm(self, message):
         # Handle a help message
@@ -130,11 +134,12 @@ class ModBot(discord.Client):
                 self.immediate_harm_queue.append(report)
             elif report.category in ["Spam", "Misinformation"]: # Suggestive harms
                 # Handle appeal process
-                # TODO: Create another method and complete the process
-                await self.mod_channels[self.guild_id].send(
-                    f'Got a report. Category: {report.category} | Sub-category: {report.sub_category}\n' + 
-                    f'TODO: Handle the appeal process via DM.'
-                )
+                # TODO: Move this into a new method and complete the process
+                appeal_thread = await report.message.channel.create_thread(name="appeal process", invitable=False)
+                await appeal_thread.add_user(report.message.author)
+                await appeal_thread.send("Explain everything and ask the user to start the appeal")
+                await appeal_thread.send("Please submit your appeal here:")
+                self.suggestive_harm_dict[appeal_thread.id] = (appeal_thread, report)
             else:
                 raise ValueError(f"Found undefined category {report.category}.")
             
@@ -157,6 +162,25 @@ class ModBot(discord.Client):
             # Otherwise, sleep for 30 seconds
             else:
                 await asyncio.sleep(30)
+
+
+    async def handle_appeal(self, message):
+        # Retrieve the related report and appeal thread
+        thread, report = self.suggestive_harm_dict.pop(message.channel.id)
+        # Send everyting to the mod channel
+        mod_channel = self.mod_channels[message.guild.id]
+        await mod_channel.send(
+            f'===Manual review===\n' +
+            f'Message to review:\n"{report.message.content}"\n' +
+            f'Appeal:\n"{message.content}"'
+        )
+        # TODO: We need to take actions based on manual review result
+        #       But this should probably be done in somewhere else
+
+        # End the appeal thread
+        # TODO: We actually should not delete the thread until we inform the user
+        #       of the appeal result.
+        await thread.delete()
 
 
     async def handle_channel_message(self, message):
