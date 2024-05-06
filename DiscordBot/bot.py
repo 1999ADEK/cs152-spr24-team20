@@ -152,12 +152,24 @@ class ModBot(discord.Client):
         while not self.is_closed():
             # If the mod channel is set up and we have at least one immediate harm in the queue,
             # start the review process
-            # TODO: Complete the process
+            # TODO: In milestone 3 we need to implement an algortihm to decide whether
+            #       to remove the content
             if self.mod_channels and self.immediate_harm_queue:
+                # Retreive the report
                 report = self.immediate_harm_queue.popleft()
+                # Delete the message and send a warning to the author
+                await report.message.delete()
+                await report.message.author.send(
+                    'TODO: Edit the warning message sent to the author here.'
+                )
+                # Record the review result in the mod channel
                 mod_channel = self.mod_channels[self.guild_id]
                 await mod_channel.send(
-                    f'Got a report. Category: {report.category} | Sub-category: {report.sub_category}'
+                    f'=====Immediate Harm Report=====\n' +
+                    f'Category: {report.category} | Sub-category: {report.sub_category}\n' +
+                    f'Content: "{report.message.content}"\n' +
+                    f'Our system has decided that this content must be removed. ' +
+                    f'The message is deleted, and a warning is issued to the author.'
                 )
             # Otherwise, sleep for 30 seconds
             else:
