@@ -178,20 +178,47 @@ class ModBot(discord.Client):
 
     async def handle_appeal(self, message):
         # Retrieve the related report and appeal thread
-        thread, report = self.suggestive_harm_dict.pop(message.channel.id)
+        thread, report = self.suggestive_harm_dict[message.channel.id]
         # Send everyting to the mod channel
         mod_channel = self.mod_channels[message.guild.id]
         await mod_channel.send(
             f'===Manual review===\n' +
+            f'ID: `{message.channel.id}`\n' +
             f'Message to review:\n"{report.message.content}"\n' +
-            f'Appeal:\n"{message.content}"'
+            f'Appeal:\n"{message.content}"\n' +
+            f'React to this message with:\n' +
+            f'- 🟢 (keep the content)\n' +
+            f'- 🔴 (remove the content)'
         )
-        # TODO: We need to take actions based on manual review result
-        #       But this should probably be done in somewhere else
 
-        # End the appeal thread
-        # TODO: We actually should not delete the thread until we inform the user
-        #       of the appeal result.
+
+    async def on_reaction_add(self, reaction, user):
+        # Only handle reactions to manual review
+        if reaction.message.channel.name != f'group-{self.group_num}-mod':
+            return
+        if not re.search('Manual review', reaction.message.content):
+            return
+        
+        # Parse the appeal thread id and retrieve the report and thread
+        m = re.search('ID: `.*`', reaction.message.content)
+        thread_id = int(m.group(0)[5:-1])
+        thread, report = self.suggestive_harm_dict.pop(thread_id)
+
+        # Take actions based on the reaction
+        if str(reaction.emoji) == '🟢':
+            await thread.send(
+                'We have reviewed your appeal and decided to keep your content.\n' +
+                'This thread will be closed soon. Thanks for your patience.'
+            )
+        elif str(reaction.emoji) == '🔴':
+            await report.message.delete()
+            await thread.send(
+                'We have reviewed your appeal and decided to remove your content.\n' +
+                'This thread will be closed soon. Thanks for your understanding.'
+            )
+        
+        # Sleep for 10 seconds and then close the appeal thread
+        await asyncio.sleep(10)
         await thread.delete()
 
 
