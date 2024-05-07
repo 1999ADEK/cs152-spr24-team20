@@ -135,8 +135,14 @@ class ModBot(discord.Client):
                 # TODO: Move this into a new method and complete the process
                 appeal_thread = await report.message.channel.create_thread(name="appeal process", invitable=False)
                 await appeal_thread.add_user(report.message.author)
-                await appeal_thread.send("Explain everything and ask the user to start the appeal")
-                await appeal_thread.send("Please submit your appeal here:")
+                message = report.message
+                await appeal_thread.send(
+                    f'Your post on `{message.created_at:%m/%d/%Y}` has been reported for being `{report.category}`. ' +
+                    'This is a violation of Facebook\'s Community Guideline. Please take down or edit your post ' +
+                    'within the next 24 hours to avoid internal processing of the report.\n' +
+                    'If you belive this report is a mistake, please begin an appeal process.'
+                )
+                await appeal_thread.send("Submit your appeal here:")
                 self.suggestive_harm_dict[appeal_thread.id] = (appeal_thread, report)
             
     
