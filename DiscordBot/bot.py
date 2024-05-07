@@ -124,13 +124,13 @@ class ModBot(discord.Client):
         if self.reports[author_id].report_complete():
             report = self.reports.pop(author_id)
             # If the report is cancelled, do nothing
-            if report.category is None or report.sub_category is None:
+            if report.report_description is None:
                 return
             # Otherwise, start the moderating process
-            if report.category in ["Harassment"]: # Immediate harms
+            if self.is_immediate_harm(report):
                 # Handle algorithmic review process
                 self.immediate_harm_queue.append(report)
-            elif report.category in ["Spam", "Misinformation"]: # Suggestive harms
+            else:
                 # Handle appeal process
                 # TODO: Move this into a new method and complete the process
                 appeal_thread = await report.message.channel.create_thread(name="appeal process", invitable=False)
@@ -138,8 +138,26 @@ class ModBot(discord.Client):
                 await appeal_thread.send("Explain everything and ask the user to start the appeal")
                 await appeal_thread.send("Please submit your appeal here:")
                 self.suggestive_harm_dict[appeal_thread.id] = (appeal_thread, report)
-            else:
-                raise ValueError(f"Found undefined category {report.category}.")
+            
+    
+    def is_immediate_harm(self, report):
+        '''
+        An algorithm to decide whether the reported content is immediate harm.
+        '''
+        # TODO: In milstone 3 this should be a ML model
+        # Here we just simply decide the harm type based on categories
+        if report.sub_sub_category in [
+            "Recruitment", "Promotion", "Suicidal", "Promotion", "Drug Abuse",
+            "Personal Attacks", "Cyberstalking", "Targetting", "Grooming", "Physical Abuse", "Emotional Abuse"
+        ]:
+            return True
+        elif report.sub_category in [
+            "Threats", "Glorification", "Graphic", "Explicit Sexual Activity", "Explicit Text", "Sexual Violence",
+            "Plagiarism", "Defamation", "Counterfeit", "Privacy Issues", "Scams", "Hate Speech"
+        ]:
+            return True
+        else:
+            return False
             
 
     async def handle_immediate_harm(self):
