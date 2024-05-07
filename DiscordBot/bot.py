@@ -121,8 +121,6 @@ class ModBot(discord.Client):
                 await message.channel.send(response)  # Send normal text message
 
         # If the report is complete or cancelled, remove it from our map
-        # TODO: There might be a bug in current Report implementation
-        #       I need to send an extra dm message to the bot to get to this part of the code
         if self.reports[author_id].report_complete():
             report = self.reports.pop(author_id)
             # If the report is cancelled, do nothing
