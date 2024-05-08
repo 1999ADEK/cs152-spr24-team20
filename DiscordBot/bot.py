@@ -178,9 +178,9 @@ class ModBot(discord.Client):
                     )
                     await appeal_thread.send("Submit your appeal here:")
                     self.suggestive_harm_dict[appeal_thread.id] = (appeal_thread, report)
-            # Otherwise, sleep for 30 seconds
+            # Otherwise, sleep for 10 seconds
             else:
-                await asyncio.sleep(30)
+                await asyncio.sleep(10)
 
 
     async def handle_immediate_harm(self, report):
