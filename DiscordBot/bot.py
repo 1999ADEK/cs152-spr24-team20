@@ -37,9 +37,9 @@ class ModBot(discord.Client):
         self.mod_channels = {} # Map from guild to the mod channel id for that guild
         self.reports = {} # Map from user IDs to the state of their report
 
-        # A queue to handle reports of immediate harms
+        # A queue to handle reports of both harm types
         # TODO: Probably have to switch to heap to support SybilRank priority
-        self.immediate_harm_queue = deque()
+        self.report_queue = deque()
         # A queue to handle reports of suggestive harms
         self.suggestive_harm_dict = OrderedDict()
 
@@ -47,7 +47,7 @@ class ModBot(discord.Client):
         '''
         Setup a background task.
         '''
-        self.bg_task = self.loop.create_task(self.handle_immediate_harm())
+        self.bg_task = self.loop.create_task(self.handle_report())
     
     async def on_ready(self):
         print(f'{self.user.name} has connected to Discord! It is these guilds:')
@@ -126,24 +126,8 @@ class ModBot(discord.Client):
             # If the report is cancelled, do nothing
             if report.report_description is None:
                 return
-            # Otherwise, start the moderating process
-            if self.is_immediate_harm(report):
-                # Handle algorithmic review process
-                self.immediate_harm_queue.append(report)
-            else:
-                # Handle appeal process
-                # TODO: Move this into a new method and complete the process
-                appeal_thread = await report.message.channel.create_thread(name="appeal process", invitable=False)
-                await appeal_thread.add_user(report.message.author)
-                message = report.message
-                await appeal_thread.send(
-                    f'Your post on `{message.created_at:%m/%d/%Y}` has been reported for being `{report.category}`. ' +
-                    'This is a violation of Facebook\'s Community Guideline. Please take down or edit your post ' +
-                    'within the next 24 hours to avoid internal processing of the report.\n' +
-                    'If you belive this report is a mistake, please begin an appeal process.'
-                )
-                await appeal_thread.send("Submit your appeal here:")
-                self.suggestive_harm_dict[appeal_thread.id] = (appeal_thread, report)
+            # Otherwise, add it to the report queue
+            self.report_queue.append(report)
             
     
     def is_immediate_harm(self, report):
@@ -166,44 +150,64 @@ class ModBot(discord.Client):
             return False
             
 
-    async def handle_immediate_harm(self):
+    async def handle_report(self):
         '''
-        A background task to handle immediate harm reports.
+        A background task to handle report queue.
         '''
         await self.wait_until_ready()
         while not self.is_closed():
-            # If the mod channel is set up and we have at least one immediate harm in the queue,
+            # If the mod channel is set up and we have at least one report in the queue,
             # start the review process
-            # TODO: In milestone 3 we need to implement an algortihm to decide whether
-            #       to remove the content
-            if self.mod_channels and self.immediate_harm_queue:
+            if self.mod_channels and self.report_queue:
                 # Retreive the report
-                report = self.immediate_harm_queue.popleft()
-                # Delete the message and send a warning to the author
-                message = report.message
-                violation_type = f'`{report.category}`'
-                if report.category == 'Sexual':
-                    violation_type = 'being ' + violation_type
-                await report.message.author.send(
-                    f'Your post on `{message.created_at:%m/%d/%Y}` has been reported for {violation_type}. ' +
-                    'This is a violation of Facebook\'s Community Guideline.\n' +
-                    'We have decided to take down the content. Thanks for your understanding.'
-                )
-                await report.message.delete()
-                # Record the review result in the mod channel
-                mod_channel = self.mod_channels[self.guild_id]
-                sysmsg = f'===== Immediate Harm Report =====\n'
-                sysmsg += f'- Category: `{report.category}`\n'
-                sysmsg += f'- Sub-category: `{report.sub_category}`\n'
-                if report.sub_sub_category is not None:
-                    sysmsg += f'- Clarifying category: `{report.sub_sub_category}`\n'
-                sysmsg += f'- Content: "{report.message.content}"\n'
-                sysmsg += 'Our system has decided that this content must be removed. '
-                sysmsg += 'The message is deleted, and a warning is issued to the author.'
-                await mod_channel.send(sysmsg)
+                report = self.report_queue.popleft()
+                if self.is_immediate_harm(report):
+                    # Handle immediate harm
+                    await self.handle_immediate_harm(report)
+                else:
+                    # Initiate appeal process
+                    # TODO: Move this into a new method and complete the process
+                    appeal_thread = await report.message.channel.create_thread(name="appeal process", invitable=False)
+                    await appeal_thread.add_user(report.message.author)
+                    message = report.message
+                    await appeal_thread.send(
+                        f'Your post on `{message.created_at:%m/%d/%Y}` has been reported for being `{report.category}`. ' +
+                        'This is a violation of Facebook\'s Community Guideline. Please take down or edit your post ' +
+                        'within the next 24 hours to avoid internal processing of the report.\n' +
+                        'If you belive this report is a mistake, please begin an appeal process.'
+                    )
+                    await appeal_thread.send("Submit your appeal here:")
+                    self.suggestive_harm_dict[appeal_thread.id] = (appeal_thread, report)
             # Otherwise, sleep for 30 seconds
             else:
                 await asyncio.sleep(30)
+
+
+    async def handle_immediate_harm(self, report):
+        # TODO: In milestone 3 we need to implement an algortihm to decide whether
+        #       to remove the content
+        # Here we just directly remove the content
+        message = report.message
+        violation_type = f'`{report.category}`'
+        if report.category == 'Sexual':
+            violation_type = 'being ' + violation_type
+        await report.message.author.send(
+            f'Your post on `{message.created_at:%m/%d/%Y}` has been reported for {violation_type}. ' +
+            'This is a violation of Facebook\'s Community Guideline.\n' +
+            'We have decided to take down the content. Thanks for your understanding.'
+        )
+        await report.message.delete()
+        # Record the review result in the mod channel
+        mod_channel = self.mod_channels[self.guild_id]
+        sysmsg = f'===== Immediate Harm Report =====\n'
+        sysmsg += f'- Category: `{report.category}`\n'
+        sysmsg += f'- Sub-category: `{report.sub_category}`\n'
+        if report.sub_sub_category is not None:
+            sysmsg += f'- Clarifying category: `{report.sub_sub_category}`\n'
+        sysmsg += f'- Content: "{report.message.content}"\n'
+        sysmsg += 'Our system has decided that this content must be removed. '
+        sysmsg += 'The post is deleted, and a warning is issued to the author.'
+        await mod_channel.send(sysmsg)
 
 
     async def handle_appeal(self, message):
