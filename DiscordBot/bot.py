@@ -9,7 +9,10 @@ import requests
 from report import Report
 import pdb
 import asyncio
-from collections import deque, OrderedDict
+from collections import OrderedDict
+import heapq
+import datetime
+import random
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -38,8 +41,7 @@ class ModBot(discord.Client):
         self.reports = {} # Map from user IDs to the state of their report
 
         # A queue to handle reports of both harm types
-        # TODO: Probably have to switch to heap to support SybilRank priority
-        self.report_queue = deque()
+        self.report_queue = []
         # A queue to handle reports of suggestive harms
         self.suggestive_harm_dict = OrderedDict()
 
@@ -127,7 +129,18 @@ class ModBot(discord.Client):
             if report.report_description is None:
                 return
             # Otherwise, add it to the report queue
-            self.report_queue.append(report)
+            # Reports with lower SybilRank scores are given higher priority
+            # For those with the same score, priority is determined on a first-come, first-serve basis
+            heapq.heappush(
+                self.report_queue,
+                (self.get_sybilrank_score(report), datetime.datetime.now(), report)
+            )
+
+
+    def get_sybilrank_score(self, report):
+        # TODO: We need to implement this in milestone 3
+        # Right now just randomly assign a number as score
+        return random.random()
             
     
     def is_immediate_harm(self, report):
@@ -160,7 +173,7 @@ class ModBot(discord.Client):
             # start the review process
             if self.mod_channels and self.report_queue:
                 # Retreive the report
-                report = self.report_queue.popleft()
+                sybilrank_score, _, report = heapq.heappop(self.report_queue)
                 if self.is_immediate_harm(report):
                     # Handle immediate harm
                     await self.handle_immediate_harm(report)
