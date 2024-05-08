@@ -180,10 +180,16 @@ class ModBot(discord.Client):
                 # Retreive the report
                 report = self.immediate_harm_queue.popleft()
                 # Delete the message and send a warning to the author
-                await report.message.delete()
+                message = report.message
+                violation_type = f'`{report.category}`'
+                if report.category == 'Sexual':
+                    violation_type = 'being ' + violation_type
                 await report.message.author.send(
-                    'TODO: Edit the warning message sent to the author here.'
+                    f'Your post on `{message.created_at:%m/%d/%Y}` has been reported for {violation_type}. ' +
+                    'This is a violation of Facebook\'s Community Guideline.\n' +
+                    'We have decided to take down the content. Thanks for your understanding.'
                 )
+                await report.message.delete()
                 # Record the review result in the mod channel
                 mod_channel = self.mod_channels[self.guild_id]
                 await mod_channel.send(
