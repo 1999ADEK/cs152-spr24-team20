@@ -192,13 +192,15 @@ class ModBot(discord.Client):
                 await report.message.delete()
                 # Record the review result in the mod channel
                 mod_channel = self.mod_channels[self.guild_id]
-                await mod_channel.send(
-                    f'=====Immediate Harm Report=====\n' +
-                    f'Category: {report.category} | Sub-category: {report.sub_category}\n' +
-                    f'Content: "{report.message.content}"\n' +
-                    f'Our system has decided that this content must be removed. ' +
-                    f'The message is deleted, and a warning is issued to the author.'
-                )
+                sysmsg = f'===== Immediate Harm Report =====\n'
+                sysmsg += f'- Category: `{report.category}`\n'
+                sysmsg += f'- Sub-category: `{report.sub_category}`\n'
+                if report.sub_sub_category is not None:
+                    sysmsg += f'- Clarifying category: `{report.sub_sub_category}`\n'
+                sysmsg += f'- Content: "{report.message.content}"\n'
+                sysmsg += 'Our system has decided that this content must be removed. '
+                sysmsg += 'The message is deleted, and a warning is issued to the author.'
+                await mod_channel.send(sysmsg)
             # Otherwise, sleep for 30 seconds
             else:
                 await asyncio.sleep(30)
@@ -209,22 +211,27 @@ class ModBot(discord.Client):
         thread, report = self.suggestive_harm_dict[message.channel.id]
         # Send everyting to the mod channel
         mod_channel = self.mod_channels[message.guild.id]
-        await mod_channel.send(
-            f'===Manual review===\n' +
-            f'ID: `{message.channel.id}`\n' +
-            f'Message to review:\n"{report.message.content}"\n' +
-            f'Appeal:\n"{message.content}"\n' +
-            f'React to this message with:\n' +
-            f'- 🟢 (keep the content)\n' +
-            f'- 🔴 (remove the content)'
-        )
+        sysmsg = f'===== Suggestive Harm Report =====\n'
+        sysmsg += f'- ID: `{message.channel.id}`\n'
+        sysmsg += f'- Category: `{report.category}`\n'
+        sysmsg += f'- Sub-category: `{report.sub_category}`\n'
+        if report.sub_sub_category is not None:
+            sysmsg += f'- Clarifying category: `{report.sub_sub_category}`\n'
+        sysmsg += f'- Content: "{report.message.content}"\n'
+        sysmsg += f'- Report description: "{report.report_description}"\n'
+        sysmsg += f'- Appeal: "{message.content}"\n'
+        sysmsg += '=============================\n'
+        sysmsg += 'React to this message with:\n'
+        sysmsg += '- 🟢 (keep the content)\n'
+        sysmsg += '- 🔴 (remove the content)'
+        await mod_channel.send(sysmsg)
 
 
     async def on_reaction_add(self, reaction, user):
         # Only handle reactions to manual review
         if reaction.message.channel.name != f'group-{self.group_num}-mod':
             return
-        if not re.search('Manual review', reaction.message.content):
+        if not re.search('Suggestive Harm Report', reaction.message.content):
             return
         
         # Parse the appeal thread id and retrieve the report and thread
