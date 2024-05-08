@@ -8,6 +8,11 @@ import re
 import requests
 from report import Report
 import pdb
+import asyncio
+from collections import OrderedDict
+import heapq
+import datetime
+import random
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -35,6 +40,17 @@ class ModBot(discord.Client):
         self.mod_channels = {} # Map from guild to the mod channel id for that guild
         self.reports = {} # Map from user IDs to the state of their report
 
+        # A queue to handle reports of both harm types
+        self.report_queue = []
+        # A queue to handle reports of suggestive harms
+        self.suggestive_harm_dict = OrderedDict()
+
+    async def setup_hook(self):
+        '''
+        Setup a background task.
+        '''
+        self.bg_task = self.loop.create_task(self.handle_report())
+    
     async def on_ready(self):
         print(f'{self.user.name} has connected to Discord! It is these guilds:')
         for guild in self.guilds:
@@ -53,6 +69,9 @@ class ModBot(discord.Client):
             for channel in guild.text_channels:
                 if channel.name == f'group-{self.group_num}-mod':
                     self.mod_channels[guild.id] = channel
+                    # A temporary fix to directly access guild id
+                    # TODO: Access this info from Report
+                    self.guild_id = guild.id
         
 
     async def on_message(self, message):
@@ -65,10 +84,13 @@ class ModBot(discord.Client):
             return
 
         # Check if this message was sent in a server ("guild") or if it's a DM
-        if message.guild:
+        channel = message.channel
+        if isinstance(channel, discord.TextChannel):
             await self.handle_channel_message(message)
-        else:
+        elif isinstance(channel, discord.DMChannel):
             await self.handle_dm(message)
+        elif isinstance(channel, discord.Thread):
+            await self.handle_appeal(message)
 
     async def handle_dm(self, message):
         # Handle a help message
@@ -102,8 +124,155 @@ class ModBot(discord.Client):
 
         # If the report is complete or cancelled, remove it from our map
         if self.reports[author_id].report_complete():
-            print(f"Removing report for {author_id}")
-            self.reports.pop(author_id)
+            report = self.reports.pop(author_id)
+            # If the report is cancelled, do nothing
+            if report.report_description is None:
+                return
+            # Otherwise, add it to the report queue
+            # Reports with lower SybilRank scores are given higher priority
+            # For those with the same score, priority is determined on a first-come, first-serve basis
+            heapq.heappush(
+                self.report_queue,
+                (self.get_sybilrank_score(report), datetime.datetime.now(), report)
+            )
+
+
+    def get_sybilrank_score(self, report):
+        # TODO: We need to implement this in milestone 3
+        # Right now just randomly assign a number as score
+        return random.random()
+            
+    
+    def is_immediate_harm(self, report):
+        '''
+        An algorithm to decide whether the reported content is immediate harm.
+        '''
+        # TODO: In milstone 3 this should be a ML model
+        # Here we just simply decide the harm type based on categories
+        if report.sub_sub_category in [
+            "Recruitment", "Promotion", "Suicidal", "Promotion", "Drug Abuse",
+            "Personal Attacks", "Cyberstalking", "Targetting", "Grooming", "Physical Abuse", "Emotional Abuse"
+        ]:
+            return True
+        elif report.sub_category in [
+            "Threats", "Glorification", "Graphic", "Explicit Sexual Activity", "Explicit Text", "Sexual Violence",
+            "Plagiarism", "Defamation", "Counterfeit", "Privacy Issues", "Scams", "Hate Speech"
+        ]:
+            return True
+        else:
+            return False
+            
+
+    async def handle_report(self):
+        '''
+        A background task to handle report queue.
+        '''
+        await self.wait_until_ready()
+        while not self.is_closed():
+            # If the mod channel is set up and we have at least one report in the queue,
+            # start the review process
+            if self.mod_channels and self.report_queue:
+                # Retreive the report
+                sybilrank_score, _, report = heapq.heappop(self.report_queue)
+                if self.is_immediate_harm(report):
+                    # Handle immediate harm
+                    await self.handle_immediate_harm(report)
+                else:
+                    # Initiate appeal process
+                    # TODO: Move this into a new method and complete the process
+                    appeal_thread = await report.message.channel.create_thread(name="appeal process", invitable=False)
+                    await appeal_thread.add_user(report.message.author)
+                    message = report.message
+                    await appeal_thread.send(
+                        f'Your post on `{message.created_at:%m/%d/%Y}` has been reported for being `{report.category}`. ' +
+                        'This is a violation of Facebook\'s Community Guideline. Please take down or edit your post ' +
+                        'within the next 24 hours to avoid internal processing of the report.\n' +
+                        'If you belive this report is a mistake, please begin an appeal process.'
+                    )
+                    await appeal_thread.send("Submit your appeal here:")
+                    self.suggestive_harm_dict[appeal_thread.id] = (appeal_thread, report)
+            # Otherwise, sleep for 10 seconds
+            else:
+                await asyncio.sleep(10)
+
+
+    async def handle_immediate_harm(self, report):
+        # TODO: In milestone 3 we need to implement an algortihm to decide whether
+        #       to remove the content
+        # Here we just directly remove the content
+        message = report.message
+        violation_type = f'`{report.category}`'
+        if report.category == 'Sexual':
+            violation_type = 'being ' + violation_type
+        await report.message.author.send(
+            f'Your post on `{message.created_at:%m/%d/%Y}` has been reported for {violation_type}. ' +
+            'This is a violation of Facebook\'s Community Guideline.\n' +
+            'We have decided to take down the content. Thanks for your understanding.'
+        )
+        await report.message.delete()
+        # Record the review result in the mod channel
+        mod_channel = self.mod_channels[self.guild_id]
+        sysmsg = f'===== Immediate Harm Report =====\n'
+        sysmsg += f'- Category: `{report.category}`\n'
+        sysmsg += f'- Sub-category: `{report.sub_category}`\n'
+        if report.sub_sub_category is not None:
+            sysmsg += f'- Clarifying category: `{report.sub_sub_category}`\n'
+        sysmsg += f'- Content: "{report.message.content}"\n'
+        sysmsg += 'Our system has decided that this content must be removed. '
+        sysmsg += 'The post is deleted, and a warning is issued to the author.'
+        await mod_channel.send(sysmsg)
+
+
+    async def handle_appeal(self, message):
+        # Retrieve the related report and appeal thread
+        thread, report = self.suggestive_harm_dict[message.channel.id]
+        # Send everyting to the mod channel
+        mod_channel = self.mod_channels[message.guild.id]
+        sysmsg = f'===== Suggestive Harm Report =====\n'
+        sysmsg += f'- ID: `{message.channel.id}`\n'
+        sysmsg += f'- Category: `{report.category}`\n'
+        sysmsg += f'- Sub-category: `{report.sub_category}`\n'
+        if report.sub_sub_category is not None:
+            sysmsg += f'- Clarifying category: `{report.sub_sub_category}`\n'
+        sysmsg += f'- Content: "{report.message.content}"\n'
+        sysmsg += f'- Report description: "{report.report_description}"\n'
+        sysmsg += f'- Appeal: "{message.content}"\n'
+        sysmsg += '=============================\n'
+        sysmsg += 'React to this message with:\n'
+        sysmsg += '- 🟢 (keep the content)\n'
+        sysmsg += '- 🔴 (remove the content)'
+        await mod_channel.send(sysmsg)
+
+
+    async def on_reaction_add(self, reaction, user):
+        # Only handle reactions to manual review
+        if reaction.message.channel.name != f'group-{self.group_num}-mod':
+            return
+        if not re.search('Suggestive Harm Report', reaction.message.content):
+            return
+        
+        # Parse the appeal thread id and retrieve the report and thread
+        m = re.search('ID: `.*`', reaction.message.content)
+        thread_id = int(m.group(0)[5:-1])
+        thread, report = self.suggestive_harm_dict.pop(thread_id)
+
+        # Take actions based on the reaction
+        if str(reaction.emoji) == '🟢':
+            await thread.send(
+                'We have reviewed your appeal and decided to keep your content.\n' +
+                'This thread will be closed soon. Thanks for your patience.'
+            )
+        elif str(reaction.emoji) == '🔴':
+            await report.message.delete()
+            await thread.send(
+                'We have reviewed your appeal and decided to remove your content.\n' +
+                'This thread will be closed soon. Thanks for your understanding.'
+            )
+        
+        # Sleep for 10 seconds and then close the appeal thread
+        await asyncio.sleep(10)
+        await thread.delete()
+
 
     async def handle_channel_message(self, message):
         # Only handle messages sent in the "group-#" channel
