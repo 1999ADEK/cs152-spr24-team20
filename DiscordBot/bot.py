@@ -43,6 +43,12 @@ class ModBot(discord.Client):
 
         # A queue to handle reports of both harm types
         self.report_queue = []
+        # Create dummy reports at initialization for demo purposes
+        for _ in range(10):
+            heapq.heappush(
+                self.report_queue,
+                (random.random(), datetime.datetime.now(), None),
+            )
         # A queue to handle reports of suggestive harms
         self.suggestive_harm_dict = OrderedDict()
 
@@ -184,7 +190,10 @@ class ModBot(discord.Client):
             if self.mod_channels and self.report_queue:
                 # Retreive the report
                 sybilrank_score, _, report = heapq.heappop(self.report_queue)
-                if self.is_immediate_harm(report):
+                if report is None:
+                    # If it's a dummy report, do nothing
+                    await asyncio.sleep(10)
+                elif self.is_immediate_harm(report):
                     # Handle immediate harm
                     await self.handle_immediate_harm(report)
                 else:
