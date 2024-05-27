@@ -22,6 +22,9 @@ handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w'
 handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
 logger.addHandler(handler)
 
+# Placeholdler name for json file of precomputed SybilRank scores for each Discord ID
+sybilrank_scores_file = 'sybilrank_scores.json'
+
 # There should be a file called 'tokens.json' inside the same folder as this file
 token_path = 'tokens.json'
 if not os.path.isfile(token_path):
@@ -155,8 +158,17 @@ class ModBot(discord.Client):
 
     def get_sybilrank_score(self, report):
         # TODO: We need to implement this in milestone 3
-        # Right now just randomly assign a number as score
-        return random.random()
+        # Milestone 2: randomly assign a number as score
+        # Milestone 3: Search for reporter's ID (same as author ID?)
+        # and return SybilRank score
+        
+        with open(sybilrank_scores_file) as f:
+            scores = json.load(f)
+            if str(report.reporter_id) in scores:
+                return scores[str(report.reporter_id)]
+            else:
+                # not sure what to do here
+                return random.random()
             
     
     def is_immediate_harm(self, report):
