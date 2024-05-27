@@ -23,7 +23,7 @@ handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(me
 logger.addHandler(handler)
 
 # Placeholdler name for json file of precomputed SybilRank scores for each Discord ID
-sybilrank_scores_file = 'sybilrank_scores.json'
+sybilrank_scores_file = 'SybilDetection/sybil_score.json'
 
 # There should be a file called 'tokens.json' inside the same folder as this file
 token_path = 'tokens.json'
