@@ -13,6 +13,7 @@ from collections import OrderedDict
 import heapq
 import datetime
 import random
+from utils import visualize_heap
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -135,6 +136,15 @@ class ModBot(discord.Client):
                 self.report_queue,
                 (self.get_sybilrank_score(report), datetime.datetime.now(), report)
             )
+            vis_filename = visualize_heap(self.report_queue, highlight_report=report)
+            mod_channel = self.mod_channels[self.guild_id]
+            await mod_channel.send(
+                "=============================\n"
+                "A report has been added to the queue. " +
+                "Based on its Sybil score, it is currently positioned at this location in the heap:"
+            )
+            await mod_channel.send(file=discord.File(vis_filename))
+            os.remove(vis_filename)
 
 
     def get_sybilrank_score(self, report):
