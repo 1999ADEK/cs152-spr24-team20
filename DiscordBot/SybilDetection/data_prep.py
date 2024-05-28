@@ -12,6 +12,8 @@ def parse_args():
 
 
 def main(args):
+    random.seed(152)
+    
     pos_idx = 4038
     edges = []
     with open(args.graph_file, 'r') as f:

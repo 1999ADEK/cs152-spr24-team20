@@ -75,7 +75,7 @@ class SybilRank:
     def power_iteration(self):
         x = np.zeros(self.num_nodes)
         np.copyto(self.posterior, self.prior)
-        if math.log(self.num_nodes) > self.max_iter:
+        if math.log(self.num_nodes) < self.max_iter:
             self.max_iter = int(math.log(self.num_nodes))
 
         for i in tqdm(range(self.max_iter)):

@@ -76,6 +76,9 @@ class SybilScar:
             self.posterior[node] = min(0.5, max(-0.5, self.posterior[node]))
 
     def lbp(self, num_threads: int = 1):
+        if math.log(self.num_nodes) < self.max_iter:
+            self.max_iter = int(math.log(self.num_nodes))
+        
         self.ordering_array = np.arange(self.num_nodes)
         np.copyto(self.posterior, self.prior)
 
@@ -110,6 +113,8 @@ def parse_args():
 
 
 def main(args):
+    random.seed(152)
+
     solver = SybilScar(
         theta_pos=args.theta_pos,
         theta_neg=args.theta_neg,
