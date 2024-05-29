@@ -150,7 +150,8 @@ class ModBot(discord.Client):
             await mod_channel.send(
                 "=============================\n"
                 "A report has been added to the queue. " +
-                "Based on its Sybil score, it is currently positioned at this location in the heap:"
+                "Based on its Sybil score, it is currently positioned at this location in the heap:\n" +
+                "(the lower the score, more trustworthy the reporter is, and the higher the priority of the report)"
             )
             await mod_channel.send(file=discord.File(vis_filename))
             os.remove(vis_filename)
