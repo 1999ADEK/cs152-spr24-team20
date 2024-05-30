@@ -14,6 +14,7 @@ import heapq
 import datetime
 import random
 from utils import visualize_heap
+from openai import OpenAI
 
 # Set up the OpenAI API key
 
@@ -174,7 +175,7 @@ class ModBot(discord.Client):
                 # not sure what to do here
                 return random.random()
     
-    def generate_prompt(post):
+    def generate_prompt(self, post):
         PROMPT = """### Instructions:
 
         Please classify the following post based on its content. Determine whether it falls under "immediate harm" or "suggestive harm" according to the criteria outlined in the Reporting Guide. Use the definitions below to make your classification:
@@ -232,8 +233,8 @@ class ModBot(discord.Client):
     
     def is_immediate_harm(self, report):
         # Only reports that are categorized as Violence, Sexual, Harassment, and Copyright are considered immediate harm.
-        if report.category.lower() not in ['Violence', 'Sexual', 'Harassment', 'Copyright']:
-            return false
+        if report.category.lower() not in ['violence', 'sexual', 'harassment', 'copyright']:
+            return False
 
         # Use OpenAI to classify the content
         client = OpenAI(api_key=openai_api_key)
@@ -247,7 +248,7 @@ class ModBot(discord.Client):
                     "role": "system",
                     "content": "Your job is to classify the following post based on its content. Determine whether it falls under 'immediate harm' or 'suggestive harm' according to the criteria outlined in the Reporting Guide. Use the definitions below to make your classification:",
                 },
-                {"role": "user", "content": generate_prompt(report.message)},
+                {"role": "user", "content": self.generate_prompt(report.message.content)},
             ],
         ).choices[0].message.content
 
