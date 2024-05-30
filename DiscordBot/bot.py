@@ -15,6 +15,8 @@ import datetime
 import random
 from utils import visualize_heap
 
+# Set up the OpenAI API key
+
 # Set up logging to the console
 logger = logging.getLogger('discord')
 logger.setLevel(logging.DEBUG)
@@ -33,6 +35,7 @@ with open(token_path) as f:
     # If you get an error here, it means your token is formatted incorrectly. Did you put it in quotes?
     tokens = json.load(f)
     discord_token = tokens['discord']
+    os.environ["OPENAI_API_KEY"] = tokens['openai']
 
 
 class ModBot(discord.Client):
@@ -170,26 +173,94 @@ class ModBot(discord.Client):
             else:
                 # not sure what to do here
                 return random.random()
-            
+    
+    def generate_prompt(post):
+        PROMPT = """### Instructions:
+
+        Please classify the following post based on its content. Determine whether it falls under "immediate harm" or "suggestive harm" according to the criteria outlined in the Reporting Guide. Use the definitions below to make your classification:
+
+        Immediate Harm: Content that poses an urgent and direct threat to individuals' safety and well-being, requiring immediate action. This includes:
+
+        - Violence: Terrorism, threats, glorification of violence, graphic violence, self-harm (including suicidal content and promotion of drug abuse).
+        - Sexual: Explicit sexual activity, nudity, explicit text, sexual violence.
+        - Harassment: Bullying, child abuse (including personal attacks, cyberstalking, targeting, grooming, physical, and emotional abuse).
+        - Copyright: Plagiarism, defamation, counterfeit, privacy issues.
+
+
+        Suggestive Harm: Content that indirectly or potentially poses a threat or contributes to harmful situations but may not require immediate action. This includes:
+
+        - Misleading: Clickbait, scams, manipulated media (deep fake, edited, misattributed, out of context), hoaxes.
+        - Inflammatory: Hate speech, polarizing content, sensationalism, cultural insensitivity (including appropriation, stereotypes, symbols, and gestures).
+
+        ### Examples:
+
+        Post 1:
+        "Join our cause! Let's fight back against the oppressors with any means necessary. #RevolutionNow"
+        Classification: Immediate Harm (Violence - Threats)
+
+        Post 2:
+        "Check out this amazing new product! Only $1 for a limited time! [link] #Discount #Sale"
+        Classification: Suggestive Harm (Misleading - Clickbait)
+
+        Post 3:
+        "Happy to share my latest artwork, even though someone else is trying to sell it as an NFT without my permission. #ArtTheft"
+        Classification: Suggestive Harm (Copyright - Plagiarism)
+
+        Post 4:
+        "Everyone should just end it all. Life is meaningless. #Suicide"
+        Classification: Immediate Harm (Violence - Self-Harm)
+
+        Post 5:
+        "This is what they don’t want you to see! [edited video] #Conspiracy"
+        Classification: Suggestive Harm (Misleading - Manipulated Media - Edited)
+
+        Post 6:
+        "You're such a loser, no one likes you. Just disappear. #Bullying"
+        Classification: Immediate Harm (Harassment - Bullying)
+
+        Post 7:
+        "This group of people is ruining our country. We need to get rid of them. #HateSpeech"
+        Classification: Immediate Harm (Inflammatory - Hate Speech)
+
+        Post: {post}
+        
+        Answer using the following format:
+        Classification: [Your classification here]
+        Explanation: [Your explanation here]"""
+
+        return PROMPT.format(post=post)      
     
     def is_immediate_harm(self, report):
-        '''
-        An algorithm to decide whether the reported content is immediate harm.
-        '''
-        # TODO: In milstone 3 this should be a ML model
-        # Here we just simply decide the harm type based on categories
-        if report.sub_sub_category in [
-            "Recruitment", "Promotion", "Suicidal", "Promotion", "Drug Abuse",
-            "Personal Attacks", "Cyberstalking", "Targetting", "Grooming", "Physical Abuse", "Emotional Abuse"
-        ]:
-            return True
-        elif report.sub_category in [
-            "Threats", "Glorification", "Graphic", "Explicit Sexual Activity", "Explicit Text", "Sexual Violence",
-            "Plagiarism", "Defamation", "Counterfeit", "Privacy Issues", "Scams", "Hate Speech"
-        ]:
-            return True
-        else:
-            return False
+        # Only reports that are categorized as Violence, Sexual, Harassment, and Copyright are considered immediate harm.
+        if report.category.lower() not in ['Violence', 'Sexual', 'Harassment', 'Copyright']:
+            return false
+
+        # Use OpenAI to classify the content
+        client = OpenAI()
+        response = client.chat.completions.create(
+            # temperature
+            # The temperature of the sampling distribution. Must be strictly positive.
+            temperature=0.0,
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Your job is to classify the following post based on its content. Determine whether it falls under 'immediate harm' or 'suggestive harm' according to the criteria outlined in the Reporting Guide. Use the definitions below to make your classification:",
+                },
+                {"role": "user", "content": generate_prompt(report.message)},
+            ],
+        ).choices[0].message.content
+
+        classification = re.search(r'Classification: (.+)', response).group(1)
+        explanation = re.search(r'Explanation: (.+)', response).group(1)
+
+
+        report.moderator_category = classification
+        report.moderator_decision_explanation = explanation
+
+        is_immediate_harm = 'immediate' in classification.lower()
+
+        return is_immediate_harm
             
 
     async def handle_report(self):
@@ -229,9 +300,7 @@ class ModBot(discord.Client):
 
 
     async def handle_immediate_harm(self, report):
-        # TODO: In milestone 3 we need to implement an algortihm to decide whether
-        #       to remove the content
-        # Here we just directly remove the content
+        # Immediately remove content that are considered immediate harm.
         message = report.message
         violation_type = f'`{report.category}`'
         if report.category == 'Sexual':

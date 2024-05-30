@@ -128,9 +128,10 @@ class Report:
         self.message_author = None
         self.report_description = None
         self.captcha_answer = None
-
-        # Add reporter_id
         self.reporter_id = None
+        self.moderator_decision_explanation = None
+        self.moderator_category = None
+
 
 
     def generate_captcha(self):
