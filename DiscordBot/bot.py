@@ -35,7 +35,7 @@ with open(token_path) as f:
     # If you get an error here, it means your token is formatted incorrectly. Did you put it in quotes?
     tokens = json.load(f)
     discord_token = tokens['discord']
-    os.environ["OPENAI_API_KEY"] = tokens['openai']
+    openai_api_key = tokens['openai']
 
 
 class ModBot(discord.Client):
@@ -236,7 +236,7 @@ class ModBot(discord.Client):
             return false
 
         # Use OpenAI to classify the content
-        client = OpenAI()
+        client = OpenAI(api_key=openai_api_key)
         response = client.chat.completions.create(
             # temperature
             # The temperature of the sampling distribution. Must be strictly positive.
