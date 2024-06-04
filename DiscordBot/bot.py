@@ -15,8 +15,8 @@ import datetime
 import random
 from utils import visualize_heap
 from openai import OpenAI
+from googleapiclient import discovery
 
-# Set up the OpenAI API key
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -37,6 +37,7 @@ with open(token_path) as f:
     tokens = json.load(f)
     discord_token = tokens['discord']
     openai_api_key = tokens['openai']
+    perspective_api_key = tokens['perspective']
 
 
 class ModBot(discord.Client):
@@ -51,7 +52,7 @@ class ModBot(discord.Client):
         # A queue to handle reports of both harm types
         self.report_queue = []
         # Create dummy reports at initialization for demo purposes
-        for _ in range(10):
+        for _ in range(1):
             heapq.heappush(
                 self.report_queue,
                 (random.random(), datetime.datetime.now(), None),
@@ -226,19 +227,15 @@ class ModBot(discord.Client):
         Post: {post}
         
         Answer using the following format:
-        Classification: [Your classification here]
+        Classification: THIS POST IS A SUGGESTIVE HARM
         Explanation: [Your explanation here]"""
 
         return PROMPT.format(post=post)      
     
-    def is_immediate_harm(self, report):
-        # Only reports that are categorized as Violence, Sexual, Harassment, and Copyright are considered immediate harm.
-        if report.category.lower() not in ['violence', 'sexual', 'harassment', 'copyright']:
-            return False
-
+    async def is_immediate_harm(self, report):
         # Use OpenAI to classify the content
         client = OpenAI(api_key=openai_api_key)
-        response = client.chat.completions.create(
+        response_4o = client.chat.completions.create(
             # temperature
             # The temperature of the sampling distribution. Must be strictly positive.
             temperature=0.0,
@@ -252,14 +249,45 @@ class ModBot(discord.Client):
             ],
         ).choices[0].message.content
 
-        classification = re.search(r'Classification: (.+)', response).group(1)
-        explanation = re.search(r'Explanation: (.+)', response).group(1)
+        client = discovery.build(
+            "commentanalyzer",
+            "v1alpha1",
+            developerKey=perspective_api_key,
+            discoveryServiceUrl="https://commentanalyzer.googleapis.com/$discovery/rest?version=v1alpha1",
+            static_discovery=False,
+        )
+
+        analyze_request = {
+            'comment': { 'text': 'friendly greetings from python' },
+            'requestedAttributes': {'TOXICITY': {}}
+        }
+
+        response_pers = client.comments().analyze(body=analyze_request).execute()
+        perspective_score = response_pers["attributeScores"]["TOXICITY"]["summaryScore"]["value"]
+
+        classification = re.search(r'Classification: (.+)', response_4o).group(1)
+        explanation = re.search(r'Explanation: (.+)', response_4o).group(1)
 
 
-        report.moderator_category = classification
-        report.moderator_decision_explanation = explanation
+        report.moderator_4o_category = classification
+        report.moderator_4o_decision_explanation = explanation
+        report.moderator_perspective_score = perspective_score
 
-        is_immediate_harm = 'immediate' in classification.lower()
+        if report.category == 'Violence':
+            is_immediate_harm = 'immediate' in classification.lower()
+        else:
+            is_immediate_harm = 'immediate' in classification.lower() and perspective_score > 0.75
+
+        mod_channel = self.mod_channels[self.guild_id]
+        sysmsg = f'===== Immediate Harm Report =====\n'
+        sysmsg += f'- Category: `{report.category}`\n'
+        sysmsg += f'- Sub-category: `{report.sub_category}`\n'
+        if report.sub_sub_category is not None:
+            sysmsg += f'- Clarifying category: `{report.sub_sub_category}`\n'
+        sysmsg += f'- Content: "{report.message.content}"\n'
+        sysmsg += f'- Explanation: "{report.moderator_decision_explanation}"\n'
+        sysmsg += f'- Perspective Toxicity score: "{report.moderator_perspective_score}"\n'
+        await mod_channel.send(sysmsg)
 
         return is_immediate_harm
             
@@ -274,11 +302,16 @@ class ModBot(discord.Client):
             # start the review process
             if self.mod_channels and self.report_queue:
                 # Retreive the report
+
                 sybilrank_score, _, report = heapq.heappop(self.report_queue)
+                
+                if report is not None:
+                    immediate_harm = await self.is_immediate_harm(report)
+
                 if report is None:
                     # If it's a dummy report, do nothing
-                    await asyncio.sleep(10)
-                elif self.is_immediate_harm(report):
+                    await asyncio.sleep(20)
+                elif immediate_harm:
                     # Handle immediate harm
                     await self.handle_immediate_harm(report)
                 else:
@@ -312,14 +345,6 @@ class ModBot(discord.Client):
             'We have decided to take down the content. Thanks for your understanding.'
         )
         await report.message.delete()
-        # Record the review result in the mod channel
-        mod_channel = self.mod_channels[self.guild_id]
-        sysmsg = f'===== Immediate Harm Report =====\n'
-        sysmsg += f'- Category: `{report.category}`\n'
-        sysmsg += f'- Sub-category: `{report.sub_category}`\n'
-        if report.sub_sub_category is not None:
-            sysmsg += f'- Clarifying category: `{report.sub_sub_category}`\n'
-        sysmsg += f'- Content: "{report.message.content}"\n'
         sysmsg += 'Our system has decided that this content must be removed. '
         sysmsg += 'The post is deleted, and a warning is issued to the author.'
         await mod_channel.send(sysmsg)

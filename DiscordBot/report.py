@@ -131,6 +131,9 @@ class Report:
         self.reporter_id = None
         self.moderator_decision_explanation = None
         self.moderator_category = None
+        self.moderator_4o_category = None
+        self.moderator_4o_decision_explanation = None
+        self.moderator_perspective_score = None
 
 
 
