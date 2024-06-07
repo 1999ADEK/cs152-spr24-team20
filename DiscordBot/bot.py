@@ -13,6 +13,10 @@ from collections import OrderedDict
 import heapq
 import datetime
 import random
+from utils import visualize_heap
+from openai import OpenAI
+from googleapiclient import discovery
+
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -20,6 +24,9 @@ logger.setLevel(logging.DEBUG)
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
 logger.addHandler(handler)
+
+# Placeholdler name for json file of precomputed SybilRank scores for each Discord ID
+sybilrank_scores_file = 'SybilDetection/sybil_score.json'
 
 # There should be a file called 'tokens.json' inside the same folder as this file
 token_path = 'tokens.json'
@@ -29,6 +36,8 @@ with open(token_path) as f:
     # If you get an error here, it means your token is formatted incorrectly. Did you put it in quotes?
     tokens = json.load(f)
     discord_token = tokens['discord']
+    openai_api_key = tokens['openai']
+    perspective_api_key = tokens['perspective']
 
 
 class ModBot(discord.Client):
@@ -42,6 +51,12 @@ class ModBot(discord.Client):
 
         # A queue to handle reports of both harm types
         self.report_queue = []
+        # Create dummy reports at initialization for demo purposes
+        for _ in range(1):
+            heapq.heappush(
+                self.report_queue,
+                (random.random(), datetime.datetime.now(), None),
+            )
         # A queue to handle reports of suggestive harms
         self.suggestive_harm_dict = OrderedDict()
 
@@ -135,32 +150,146 @@ class ModBot(discord.Client):
                 self.report_queue,
                 (self.get_sybilrank_score(report), datetime.datetime.now(), report)
             )
+            vis_filename = visualize_heap(self.report_queue, highlight_report=report)
+            mod_channel = self.mod_channels[self.guild_id]
+            await mod_channel.send(
+                "=============================\n"
+                "A report has been added to the queue. " +
+                "Based on its Sybil score, it is currently positioned at this location in the heap:\n" +
+                "(the lower the score, more trustworthy the reporter is, and the higher the priority of the report)"
+            )
+            await mod_channel.send(file=discord.File(vis_filename))
+            os.remove(vis_filename)
 
 
     def get_sybilrank_score(self, report):
         # TODO: We need to implement this in milestone 3
-        # Right now just randomly assign a number as score
-        return random.random()
-            
+        # Milestone 2: randomly assign a number as score
+        # Milestone 3: Search for reporter's ID (same as author ID?)
+        # and return SybilRank score
+        
+        with open(sybilrank_scores_file) as f:
+            scores = json.load(f)
+            if str(report.reporter_id) in scores:
+                return scores[str(report.reporter_id)]
+            else:
+                # not sure what to do here
+                return random.random()
     
-    def is_immediate_harm(self, report):
-        '''
-        An algorithm to decide whether the reported content is immediate harm.
-        '''
-        # TODO: In milstone 3 this should be a ML model
-        # Here we just simply decide the harm type based on categories
-        if report.sub_sub_category in [
-            "Recruitment", "Promotion", "Suicidal", "Promotion", "Drug Abuse",
-            "Personal Attacks", "Cyberstalking", "Targetting", "Grooming", "Physical Abuse", "Emotional Abuse"
-        ]:
-            return True
-        elif report.sub_category in [
-            "Threats", "Glorification", "Graphic", "Explicit Sexual Activity", "Explicit Text", "Sexual Violence",
-            "Plagiarism", "Defamation", "Counterfeit", "Privacy Issues", "Scams", "Hate Speech"
-        ]:
-            return True
+    def generate_prompt(self, post):
+        PROMPT = """### Instructions:
+
+        Please classify the following post based on its content. Determine whether it falls under "immediate harm" or "suggestive harm" according to the criteria outlined in the Reporting Guide. Use the definitions below to make your classification:
+
+        Immediate Harm: Content that poses an urgent and direct threat to individuals' safety and well-being, requiring immediate action. This includes:
+
+        - Violence: Terrorism, threats, glorification of violence, graphic violence, self-harm (including suicidal content and promotion of drug abuse).
+        - Sexual: Explicit sexual activity, nudity, explicit text, sexual violence.
+        - Harassment: Bullying, child abuse (including personal attacks, cyberstalking, targeting, grooming, physical, and emotional abuse).
+        - Copyright: Plagiarism, defamation, counterfeit, privacy issues.
+
+
+        Suggestive Harm: Content that indirectly or potentially poses a threat or contributes to harmful situations but may not require immediate action. This includes:
+
+        - Misleading: Clickbait, scams, manipulated media (deep fake, edited, misattributed, out of context), hoaxes.
+        - Inflammatory: Hate speech, polarizing content, sensationalism, cultural insensitivity (including appropriation, stereotypes, symbols, and gestures).
+
+        ### Examples:
+
+        Post 1:
+        "Join our cause! Let's fight back against the oppressors with any means necessary. #RevolutionNow"
+        Classification: Immediate Harm (Violence - Threats)
+
+        Post 2:
+        "Check out this amazing new product! Only $1 for a limited time! [link] #Discount #Sale"
+        Classification: Suggestive Harm (Misleading - Clickbait)
+
+        Post 3:
+        "Happy to share my latest artwork, even though someone else is trying to sell it as an NFT without my permission. #ArtTheft"
+        Classification: Suggestive Harm (Copyright - Plagiarism)
+
+        Post 4:
+        "Everyone should just end it all. Life is meaningless. #Suicide"
+        Classification: Immediate Harm (Violence - Self-Harm)
+
+        Post 5:
+        "This is what they don’t want you to see! [edited video] #Conspiracy"
+        Classification: Suggestive Harm (Misleading - Manipulated Media - Edited)
+
+        Post 6:
+        "You're such a loser, no one likes you. Just disappear. #Bullying"
+        Classification: Immediate Harm (Harassment - Bullying)
+
+        Post 7:
+        "This group of people is ruining our country. We need to get rid of them. #HateSpeech"
+        Classification: Immediate Harm (Inflammatory - Hate Speech)
+
+        Post: {post}
+        
+        Answer using the following format:
+        Classification: THIS POST IS A SUGGESTIVE HARM
+        Explanation: [Your explanation here]"""
+
+        return PROMPT.format(post=post)      
+    
+    async def is_immediate_harm(self, report):
+        # Use OpenAI to classify the content
+        client = OpenAI(api_key=openai_api_key)
+        response_4o = client.chat.completions.create(
+            # temperature
+            # The temperature of the sampling distribution. Must be strictly positive.
+            temperature=0.0,
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Your job is to classify the following post based on its content. Determine whether it falls under 'immediate harm' or 'suggestive harm' according to the criteria outlined in the Reporting Guide. Use the definitions below to make your classification:",
+                },
+                {"role": "user", "content": self.generate_prompt(report.message.content)},
+            ],
+        ).choices[0].message.content
+
+        client = discovery.build(
+            "commentanalyzer",
+            "v1alpha1",
+            developerKey=perspective_api_key,
+            discoveryServiceUrl="https://commentanalyzer.googleapis.com/$discovery/rest?version=v1alpha1",
+            static_discovery=False,
+        )
+
+        analyze_request = {
+            'comment': { 'text': 'friendly greetings from python' },
+            'requestedAttributes': {'TOXICITY': {}}
+        }
+
+        response_pers = client.comments().analyze(body=analyze_request).execute()
+        perspective_score = response_pers["attributeScores"]["TOXICITY"]["summaryScore"]["value"]
+
+        classification = re.search(r'Classification: (.+)', response_4o).group(1)
+        explanation = re.search(r'Explanation: (.+)', response_4o).group(1)
+
+
+        report.moderator_4o_category = classification
+        report.moderator_4o_decision_explanation = explanation
+        report.moderator_perspective_score = perspective_score
+
+        if report.category == 'Violence':
+            is_immediate_harm = 'immediate' in classification.lower()
         else:
-            return False
+            is_immediate_harm = 'immediate' in classification.lower() and perspective_score > 0.75
+
+        mod_channel = self.mod_channels[self.guild_id]
+        sysmsg = f'===== Immediate Harm Report =====\n'
+        sysmsg += f'- Category: `{report.category}`\n'
+        sysmsg += f'- Sub-category: `{report.sub_category}`\n'
+        if report.sub_sub_category is not None:
+            sysmsg += f'- Clarifying category: `{report.sub_sub_category}`\n'
+        sysmsg += f'- Content: "{report.message.content}"\n'
+        sysmsg += f'- Explanation: "{report.moderator_decision_explanation}"\n'
+        sysmsg += f'- Perspective Toxicity score: "{report.moderator_perspective_score}"\n'
+        await mod_channel.send(sysmsg)
+
+        return is_immediate_harm
             
 
     async def handle_report(self):
@@ -173,8 +302,16 @@ class ModBot(discord.Client):
             # start the review process
             if self.mod_channels and self.report_queue:
                 # Retreive the report
+
                 sybilrank_score, _, report = heapq.heappop(self.report_queue)
-                if self.is_immediate_harm(report):
+                
+                if report is not None:
+                    immediate_harm = await self.is_immediate_harm(report)
+
+                if report is None:
+                    # If it's a dummy report, do nothing
+                    await asyncio.sleep(20)
+                elif immediate_harm:
                     # Handle immediate harm
                     await self.handle_immediate_harm(report)
                 else:
@@ -197,9 +334,7 @@ class ModBot(discord.Client):
 
 
     async def handle_immediate_harm(self, report):
-        # TODO: In milestone 3 we need to implement an algortihm to decide whether
-        #       to remove the content
-        # Here we just directly remove the content
+        # Immediately remove content that are considered immediate harm.
         message = report.message
         violation_type = f'`{report.category}`'
         if report.category == 'Sexual':
@@ -210,14 +345,6 @@ class ModBot(discord.Client):
             'We have decided to take down the content. Thanks for your understanding.'
         )
         await report.message.delete()
-        # Record the review result in the mod channel
-        mod_channel = self.mod_channels[self.guild_id]
-        sysmsg = f'===== Immediate Harm Report =====\n'
-        sysmsg += f'- Category: `{report.category}`\n'
-        sysmsg += f'- Sub-category: `{report.sub_category}`\n'
-        if report.sub_sub_category is not None:
-            sysmsg += f'- Clarifying category: `{report.sub_sub_category}`\n'
-        sysmsg += f'- Content: "{report.message.content}"\n'
         sysmsg += 'Our system has decided that this content must be removed. '
         sysmsg += 'The post is deleted, and a warning is issued to the author.'
         await mod_channel.send(sysmsg)

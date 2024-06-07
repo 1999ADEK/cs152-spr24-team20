@@ -128,6 +128,14 @@ class Report:
         self.message_author = None
         self.report_description = None
         self.captcha_answer = None
+        self.reporter_id = None
+        self.moderator_decision_explanation = None
+        self.moderator_category = None
+        self.moderator_4o_category = None
+        self.moderator_4o_decision_explanation = None
+        self.moderator_perspective_score = None
+
+
 
     def generate_captcha(self):
         image = ImageCaptcha(width=280, height=90)
@@ -150,6 +158,9 @@ class Report:
         prompts to offer at each of those states. You're welcome to change anything you want; this skeleton is just here to
         get you started and give you a model for working with Discord. 
         '''
+
+        # Save reporter_id
+        self.reporter_id = message.author.id
 
         if message.content == self.CANCEL_KEYWORD:
             self.state = State.REPORT_COMPLETE
